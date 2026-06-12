@@ -28,21 +28,19 @@ const MELBOURNE_TZ = "Australia/Melbourne";
 
 // ─── API FETCHING ─────────────────────────────────────────────────────────────
 async function workerFetch(path) {
+  console.log(path);
   const res = await fetch(`${WORKER_BASE}/${path}`);
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || `${path} error ${res.status}`);
+  console.log(data);
   return data;
 }
 
 async function fetchStandings() {
-  if (WORKER_BASE === "https://odd-union-1066.dm-dylanmathews.workers.dev")
-    return null;
   return workerFetch("standings");
 }
 
 async function fetchMatches() {
-  if (WORKER_BASE === "https://odd-union-1066.dm-dylanmathews.workers.dev")
-    return null;
   return workerFetch("matches");
 }
 
@@ -62,16 +60,16 @@ function useWorldCupData() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        if (FD_KEY === "983f65dff5bd497390516b7f3ae876b2") {
-          setUsingDemoMode(true);
-          setLoading(false);
-          return;
-        }
+        setUsingDemoMode(true);
+        setLoading(false);
+
         const [standData, matchData, oddsData] = await Promise.allSettled([
           fetchStandings(),
           fetchMatches(),
           fetchOdds(),
         ]);
+
+        console.log(standData.status);
 
         if (standData.status === "fulfilled" && standData.value) {
           setStandings(parseStandings(standData.value));
