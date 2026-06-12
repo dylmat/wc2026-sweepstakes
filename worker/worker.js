@@ -1,9 +1,8 @@
 /**
  * WC 2026 Sweepstakes — Cloudflare Worker Proxy
- * Fixes CORS for football-data.org
  *
- * Environment Variables to set in Cloudflare:
- *   FD_KEY = your football-data.org key
+ * Environment Variables (Settings → Variables):
+ *   FD_KEY = your football-data.org API key
  */
 
 const CORS = {
@@ -12,49 +11,41 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
+const json = (data, status = 200) =>
+  new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', ...CORS },
+  });
+
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-
-    // Preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    // Strip any leading slashes and normalise
-    const path = url.pathname.replace(/^\/+/, '');
+    const path = new URL(request.url).pathname.replace(/^\/+/, '');
+
+    if (!env.FD_KEY) {
+      return json({ error: 'FD_KEY environment variable is not set in Cloudflare Worker settings.' }, 500);
+    }
+
+    const FD_BASE = 'https://api.football-data.org/v4/competitions/WC';
+    const headers = { 'X-Auth-Token': env.FD_KEY };
 
     try {
-      let upstream;
-
       if (path === 'standings') {
-        upstream = 'https://api.football-data.org/v4/competitions/WC/standings?season=2026';
+        const res = await fetch(`${FD_BASE}/standings?season=2026`, { headers });
+        return json(await res.json(), res.status);
+
       } else if (path === 'matches') {
-        upstream = 'https://api.football-data.org/v4/competitions/WC/matches?season=2026';
+        const res = await fetch(`${FD_BASE}/matches?season=2026`, { headers });
+        return json(await res.json(), res.status);
+
       } else {
-        // Return debug info so you can see what path is arriving
-        return new Response(
-          JSON.stringify({ error: 'Not found', path, url: request.url }),
-          { status: 404, headers: { 'Content-Type': 'application/json', ...CORS } }
-        );
+        return json({ error: 'Not found', path }, 404);
       }
-
-      const res = await fetch(upstream, {
-        headers: { 'X-Auth-Token': env.FD_KEY },
-      });
-
-      const data = await res.json();
-
-      return new Response(JSON.stringify(data), {
-        status: res.status,
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', ...CORS },
-      });
-
     } catch (e) {
-      return new Response(
-        JSON.stringify({ error: e.message }),
-        { status: 500, headers: { 'Content-Type': 'application/json', ...CORS } }
-      );
+      return json({ error: e.message }, 500);
     }
   },
 };
