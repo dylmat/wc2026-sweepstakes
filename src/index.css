@@ -1,0 +1,39 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-base: #0a0d12;
+  --bg-surface: #111620;
+  --bg-card: #161c28;
+  --bg-card-hover: #1c2435;
+  --accent-gold: #f5c518;
+  --accent-green: #00e676;
+  --accent-red: #ff4444;
+  --text-primary: #eef2ff;
+  --text-secondary: #8892a4;
+  --text-muted: #4a5568;
+  --border: #1e2a3a;
+  --border-bright: #2a3a52;
+
+  /* Player colours — vivid, distinct */
+  --oscar: #f97316;
+  --ben: #38bdf8;
+  --harshi: #a78bfa;
+  --felicity: #f472b6;
+  --dylan: #34d399;
+  --adam: #fbbf24;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.bebas { font-family: 'Bebas Neue', sans-serif; }
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
