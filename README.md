@@ -1,13 +1,79 @@
 # ⚽ WC 2026 Sweepstakes Tracker
 
-A live World Cup 2026 sweepstakes tracker for tracking points across friends' teams. Built with React + Vite, deployed free on GitHub Pages.
+Live World Cup 2026 sweepstakes tracker. Built with React + Vite, deployed free on GitHub Pages.
 
-## Features
+---
 
-- **Live group stage standings** — pulls from the open-source `openfootball/worldcup.json` API, auto-refreshes every 5 minutes
-- **Knockout bracket tracker** — shows sweepstakes points earned as teams advance
-- **Live leaderboard** with bar chart — updates automatically as results come in
-- **Player colour coding** — each friend's teams are visually highlighted across all views
+## Why there's a proxy Worker
+
+Football APIs block direct browser requests (CORS). The included Cloudflare Worker sits in the middle, adds the right headers, and keeps your API keys secret. Cloudflare's free tier is more than enough (100,000 requests/day free).
+
+---
+
+## Setup — 3 steps
+
+### Step 1 — Get free API keys (2 min)
+
+| Key | Where | Free tier |
+|-----|-------|-----------|
+| `FD_KEY` | [football-data.org/client/register](https://www.football-data.org/client/register) | Instant, no card |
+| `ODDS_KEY` | [the-odds-api.com](https://the-odds-api.com/#get-access) | 500 req/month (optional) |
+
+### Step 2 — Deploy the Cloudflare Worker (2 min)
+
+1. Go to [workers.cloudflare.com](https://workers.cloudflare.com) → sign up free
+2. Click **Create Application → Create Worker**
+3. Replace the default code with the contents of **`worker/worker.js`** in this repo
+4. Click **Deploy**
+5. Go to your Worker → **Settings → Variables → Environment Variables**
+   - Add `FD_KEY` = your football-data.org key
+   - Add `ODDS_KEY` = your the-odds-api.com key *(optional — skip if you don't want odds)*
+6. Copy your Worker URL — looks like `https://wc-proxy.yourname.workers.dev`
+
+### Step 3 — Paste your Worker URL into the app (30 sec)
+
+Open `src/App.jsx`, find line ~9:
+
+```js
+const WORKER_BASE = 'YOUR_WORKER_URL';
+```
+
+Replace with your actual Worker URL:
+
+```js
+const WORKER_BASE = 'https://wc-proxy.yourname.workers.dev';
+```
+
+---
+
+## Deploy to GitHub Pages (free)
+
+```bash
+# First time
+git init
+git add .
+git commit -m "Initial commit"
+git branch -M main
+git remote add origin https://github.com/YOUR_USERNAME/wc2026-sweepstakes.git
+git push -u origin main
+```
+
+Then in GitHub: **Settings → Pages → Source → GitHub Actions → Save**
+
+Every `git push` after that auto-deploys. URL: `https://YOUR_USERNAME.github.io/wc2026-sweepstakes/`
+
+**Note:** If your repo is named differently, update `base` in `vite.config.js` to match.
+
+---
+
+## Local dev
+
+```bash
+npm install
+npm run dev
+```
+
+---
 
 ## Sweepstakes Points
 
@@ -21,43 +87,4 @@ A live World Cup 2026 sweepstakes tracker for tracking points across friends' te
 | Runner-up | +35 |
 | Winner | +50 |
 
-Points are designed so that even a player whose team wins the tournament (max ~82pts from one team) can still be beaten by opponents with multiple teams advancing deeply.
-
-## 🚀 Deploy to GitHub Pages (Free)
-
-### One-time setup
-
-1. **Create a new GitHub repo** (e.g. `wc2026-sweepstakes`)
-
-2. **Push this code:**
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit"
-   git branch -M main
-   git remote add origin https://github.com/YOUR_USERNAME/wc2026-sweepstakes.git
-   git push -u origin main
-   ```
-
-3. **Update `vite.config.js`** — change `base` to match your repo name:
-   ```js
-   base: '/wc2026-sweepstakes/',
-   ```
-
-4. **Enable GitHub Pages:**
-   - Go to your repo → Settings → Pages
-   - Under **Source**, select **GitHub Actions**
-   - Save
-
-5. **That's it!** Every push to `main` auto-deploys. Your URL will be:
-   `https://YOUR_USERNAME.github.io/wc2026-sweepstakes/`
-
-### Local development
-```bash
-npm install
-npm run dev
-```
-
-## Data Source
-
-Live data from [openfootball/worldcup.json](https://github.com/openfootball/worldcup.json) — free, no API key required. Updated manually by the maintainer daily during the tournament.
+Max from a single winning team ≈ 86pts — but 7 other teams advancing still matters.
