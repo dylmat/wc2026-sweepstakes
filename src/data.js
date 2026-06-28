@@ -70,7 +70,7 @@ export const GROUPS = {
 // points vanish from the leaderboard with no visible error.
 export const NORMALIZE_MAP = {
   "United States": "USA",
-  "US": "USA",
+  US: "USA",
   "Bosnia and Herzegovina": "Bosnia & Herz.",
   "Bosnia & Herzegovina": "Bosnia & Herz.",
   "Bosnia-Herzegovina": "Bosnia & Herz.",
@@ -78,7 +78,7 @@ export const NORMALIZE_MAP = {
   "Côte d'Ivoire": "Ivory Coast",
   "Cote d'Ivoire": "Ivory Coast",
   "Korea Republic": "South Korea",
-  "Turkey": "Türkiye",
+  Turkey: "Türkiye",
   "Congo DR": "DR Congo",
   "Congo, DR": "DR Congo",
   "Cape Verde Islands": "Cape Verde",
@@ -97,6 +97,28 @@ export function getTeamOwner(teamName) {
   }
   return null;
 }
+
+// ─── ROUND OF 32 MATCHUPS (hardcoded — fill in once group stage is final) ────
+// Match numbers 73-88 follow the official FIFA WC 2026 schedule in
+// chronological order. Use exact team names as they appear in PLAYER_TEAMS.
+export const ROUND_OF_32_MATCHES = [
+  { match: 73, home: "South Africa", away: "Canada" },
+  { match: 74, home: "Netherlands", away: "Morocco" },
+  { match: 75, home: "Germany", away: "Paraguay" },
+  { match: 76, home: "France", away: "Sweden" },
+  { match: 77, home: "Belgium", away: "Senegal" },
+  { match: 78, home: "USA", away: "Bosnia & Herz." },
+  { match: 79, home: "Spain", away: "TBD" },
+  { match: 80, home: "Portugal", away: "Croatia" },
+  { match: 81, home: "Brazil", away: "Japan" },
+  { match: 82, home: "Ivory Coast", away: "Norway" },
+  { match: 83, home: "Mexico", away: "Ecuador" },
+  { match: 84, home: "England", away: "DR Congo" },
+  { match: 85, home: "Switzerland", away: "TBD" },
+  { match: 86, home: "Colombia", away: "Ghana" },
+  { match: 87, home: "Australia", away: "Egypt" },
+  { match: 88, home: "Argentina", away: "Cabo Verde" },
+];
 
 // ─── FLAG EMOJIS ────────────────────────────────────────────────────────────
 export const FLAGS = {

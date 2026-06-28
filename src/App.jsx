@@ -13,6 +13,7 @@ import {
   PLAYER_TEAMS,
   GROUPS,
   ROUND_POINTS,
+  ROUND_OF_32_MATCHES,
   getTeamOwner,
   FLAGS,
   normalizeTeamName,
@@ -245,50 +246,10 @@ function computeGroupStandings(apiStandings, scheduleMatches) {
 }
 
 // ─── KNOCKOUT BRACKET ────────────────────────────────────────────────────────
-// Rather than inferring "how far did team X get" purely by pattern-matching
-// each match's stage string in isolation, we build the bracket as a real
-// tree: every knockout match has a known round, and we resolve winners by
-// walking matches in calendar order so later rounds can depend on earlier
-// results. This also lets us use the API's authoritative `score.winner`
-// field (HOME_TEAM / AWAY_TEAM) instead of comparing fulltime goals, which
-// is wrong whenever a match is decided by extra time or penalties (e.g. a
-// 1-1 draw after 90 minutes, won on penalties — fulltime score alone can't
-// tell us who actually advanced).
-// ─── ROUND OF 32 SEED TEMPLATE ────────────────────────────────────────────────
-// FIFA publishes the Round of 32 bracket positions in advance — every slot is
-// tied to a fixed group position (e.g. "Group A winner", "Group D runner-up",
-// "best 3rd-place from groups C/E/F/H/I"), regardless of which actual teams
-// end up filling those positions. This is Annex C of the 2026 regulations,
-// cross-referenced against FIFA.com's own match-schedule page and CBS Sports'
-// pre-tournament seed breakdown.
-//
-// Each entry's `home`/`away` describes how to resolve that slot:
-//   { type: 'winner', group: 'A' }       -> the team that finishes 1st in Group A
-//   { type: 'runnerup', group: 'D' }     -> the team that finishes 2nd in Group D
-//   { type: 'third', groups: [...] }     -> whichever qualifying 3rd-place team
-//                                            comes from one of these groups
-//                                            (resolved against the best-8 ranking)
-const ROUND_OF_32_SEEDS = [
-  { match: 73, home: { type: "runnerup", group: "A" }, away: { type: "runnerup", group: "B" } },
-  { match: 74, home: { type: "winner", group: "E" }, away: { type: "third", groups: ["A", "B", "C", "D", "F"] } },
-  { match: 75, home: { type: "winner", group: "F" }, away: { type: "runnerup", group: "C" } },
-  { match: 76, home: { type: "winner", group: "C" }, away: { type: "runnerup", group: "F" } },
-  { match: 77, home: { type: "winner", group: "I" }, away: { type: "third", groups: ["C", "D", "F", "G", "H"] } },
-  { match: 78, home: { type: "runnerup", group: "E" }, away: { type: "runnerup", group: "I" } },
-  { match: 79, home: { type: "winner", group: "A" }, away: { type: "third", groups: ["C", "E", "F", "H", "I"] } },
-  { match: 80, home: { type: "winner", group: "L" }, away: { type: "third", groups: ["E", "H", "I", "J", "K"] } },
-  { match: 81, home: { type: "winner", group: "D" }, away: { type: "third", groups: ["B", "E", "F", "I", "J"] } },
-  { match: 82, home: { type: "winner", group: "G" }, away: { type: "third", groups: ["A", "E", "H", "I", "J"] } },
-  { match: 83, home: { type: "runnerup", group: "K" }, away: { type: "runnerup", group: "L" } },
-  { match: 84, home: { type: "winner", group: "H" }, away: { type: "runnerup", group: "J" } },
-  { match: 85, home: { type: "winner", group: "B" }, away: { type: "third", groups: ["E", "F", "G", "I", "J"] } },
-  { match: 86, home: { type: "winner", group: "J" }, away: { type: "runnerup", group: "H" } },
-  { match: 87, home: { type: "winner", group: "K" }, away: { type: "third", groups: ["D", "E", "I", "J", "L"] } },
-  { match: 88, home: { type: "runnerup", group: "D" }, away: { type: "runnerup", group: "G" } },
-];
+// Round of 32 teams are hardcoded in ROUND_OF_32_MATCHES (data.js).
+// Progression from R16 onwards is inferred from API match results in order.
 
-// Round of 16 onward is purely "winner of match N vs winner of match M" —
-// fixed by FIFA regardless of who actually wins each tie.
+// R16 through Final: fixed pairing of "winner of match N vs winner of match M".
 const LATER_ROUND_SEEDS = [
   { match: 89, round: "Round of 16", home: { type: "winnerOf", match: 74 }, away: { type: "winnerOf", match: 77 } },
   { match: 90, round: "Round of 16", home: { type: "winnerOf", match: 73 }, away: { type: "winnerOf", match: 75 } },
@@ -305,98 +266,18 @@ const LATER_ROUND_SEEDS = [
   { match: 101, round: "Semi-final", home: { type: "winnerOf", match: 97 }, away: { type: "winnerOf", match: 98 } },
   { match: 102, round: "Semi-final", home: { type: "winnerOf", match: 99 }, away: { type: "winnerOf", match: 100 } },
   { match: 103, round: "3rd Place", home: { type: "loserOf", match: 101 }, away: { type: "loserOf", match: 102 } },
-  // Labelled "Winner" (not "Final") so it matches the ROUND_POINTS key in
-  // data.js — winning match 104 is what earns the "Winner" sweepstakes points.
   { match: 104, round: "Winner", home: { type: "winnerOf", match: 101 }, away: { type: "winnerOf", match: 102 } },
 ];
 
-const ALL_BRACKET_SEEDS = [
-  ...ROUND_OF_32_SEEDS.map((s) => ({ ...s, round: "Round of 32" })),
-  ...LATER_ROUND_SEEDS,
-];
-
-// ─── THIRD-PLACE QUALIFICATION (best 8 of 12) ────────────────────────────────
-// FIFA's tiebreak order for ranking 3rd-place teams against each other:
-// points -> goal difference -> goals scored -> team conduct -> world ranking.
-// We don't have conduct/ranking data from this API, so ties beyond goals
-// scored are left in standings order (acceptable: true ties this deep are rare,
-// and this only affects *display* of who's "in the mix" before the bracket
-// locks — once the API itself returns confirmed Round of 32 teams, we always
-// prefer that over our own projection).
-function rankThirdPlaceTeams(groupStandings) {
-  const thirds = Object.entries(groupStandings)
-    .map(([group, teams]) => ({ group, ...teams[2] }))
-    .filter((t) => t.team);
-  return thirds.sort(
-    (a, b) =>
-      b.pts - a.pts ||
-      (b.gf || 0) - (b.ga || 0) - ((a.gf || 0) - (a.ga || 0)) ||
-      (b.gf || 0) - (a.gf || 0),
-  );
-}
-
-function bestEightThirdPlaceGroups(groupStandings) {
-  return new Set(rankThirdPlaceTeams(groupStandings).slice(0, 8).map((t) => t.group));
-}
-
-// Resolve a single seed slot (winner/runnerup/third/winnerOf/loserOf) into an
-// actual team name, given current group standings and any already-resolved
-// bracket match results. Returns null if not yet determinable.
-function resolveSeedSlot(slot, groupStandings, resolvedMatches) {
-  if (slot.type === "winner") {
-    const team = groupStandings[slot.group]?.[0];
-    return team?.mp >= 3 ? team.team : null; // only trust once group is fully played
-  }
-  if (slot.type === "runnerup") {
-    const team = groupStandings[slot.group]?.[1];
-    return team?.mp >= 3 ? team.team : null;
-  }
-  if (slot.type === "third") {
-    const qualifyingGroups = bestEightThirdPlaceGroups(groupStandings);
-    // Only resolvable once we can tell which specific one of this slot's
-    // candidate groups is both (a) in the qualifying top 8 and (b) assigned
-    // to this exact bracket slot. Without FIFA's full 495-combination lookup
-    // table we can't always pin this down precisely before the API confirms
-    // it — so we surface the *candidate list* for display, and only claim a
-    // confirmed team when exactly one candidate group qualifies.
-    const matchingCandidates = slot.groups.filter((g) => qualifyingGroups.has(g));
-    if (matchingCandidates.length === 1) {
-      const team = groupStandings[matchingCandidates[0]]?.[2];
-      return team?.team || null;
-    }
-    return null; // ambiguous among multiple still-qualifying candidates
-  }
-  if (slot.type === "winnerOf") {
-    return resolvedMatches[slot.match]?.winner || null;
-  }
-  if (slot.type === "loserOf") {
-    return resolvedMatches[slot.match]?.loser || null;
-  }
+function resolveFromBracket(slot, resolvedMatches) {
+  if (slot.type === "winnerOf") return resolvedMatches[slot.match]?.winner || null;
+  if (slot.type === "loserOf") return resolvedMatches[slot.match]?.loser || null;
   return null;
 }
 
-// Human-readable label for a seed slot, used when we can't yet resolve an
-// actual team name (e.g. "Best 3rd: C/F/H" or "Winner Group A").
-function seedSlotLabel(slot) {
-  if (slot.type === "winner") return `${slot.group} Winner`;
-  if (slot.type === "runnerup") return `${slot.group} Runner-up`;
-  if (slot.type === "third") return `Best 3rd (${slot.groups.join("/")})`;
-  if (slot.type === "winnerOf") return `Winner M${slot.match}`;
-  if (slot.type === "loserOf") return `Loser M${slot.match}`;
-  return "TBD";
-}
-
-// Build the full bracket: for every fixed seed slot (73 through 104), work
-// out which actual team occupies it (from group standings once available,
-// or from live/finished match data once the API confirms it), and whether
-// that match has been won yet. Matches are resolved in ascending match-number
-// order so later rounds can depend on earlier ones (winnerOf/loserOf).
-function buildBracket(groupStandings, liveMatches) {
-  // Index live API matches by stage, ordered by kickoff time, so we can map
-  // "the Nth Round-of-32 match chronologically" to "the bracket's match N".
-  // This works because FIFA schedules the Round of 32 in exactly the same
-  // 73-88 order as the fixed seed list above (verified against the official
-  // match schedule), and likewise for every later round.
+function buildBracket(liveMatches) {
+  // Group API knockout matches by round, sorted chronologically so the Nth
+  // API match in a round aligns with the Nth bracket slot in that round.
   const byRound = {};
   liveMatches.forEach((m) => {
     const round = stageToRoundLabel(m.stage || m.round);
@@ -406,54 +287,72 @@ function buildBracket(groupStandings, liveMatches) {
   });
   Object.values(byRound).forEach((list) => list.sort((a, b) => new Date(a.date) - new Date(b.date)));
 
-  const roundMatchLists = {
-    "Round of 32": byRound["Round of 32"] || [],
-    "Round of 16": byRound["Round of 16"] || [],
-    "Quarter-final": byRound["Quarter-final"] || [],
-    "Semi-final": byRound["Semi-final"] || [],
-    "3rd Place": byRound["3rd Place"] || [],
-    // stageToRoundLabel maps the API's FINAL stage to "Winner" (to match the
-    // ROUND_POINTS key used for scoring) — so that's the bucket the actual
-    // final match lands in here too.
-    Winner: byRound["Winner"] || [],
-  };
-  // Track how many seeds of each round we've consumed, to line up the Nth
-  // seed in that round with the Nth chronological API match in that round.
-  const consumedIndex = { "Round of 32": 0, "Round of 16": 0, "Quarter-final": 0, "Semi-final": 0, "3rd Place": 0, Winner: 0 };
-
-  const resolvedMatches = {}; // match number -> { winner, loser, isLive, isFinished, apiMatch }
+  const resolvedMatches = {};
   const bracket = [];
 
-  ALL_BRACKET_SEEDS.forEach((seed) => {
-    const apiMatch = roundMatchLists[seed.round]?.[consumedIndex[seed.round]];
-    consumedIndex[seed.round] = (consumedIndex[seed.round] || 0) + 1;
-
-    // Prefer the live API's actual team names once it has filled them in
-    // (it knows things our own group-standings projection can't, like the
-    // precise outcome of the 495-combination third-place lookup table).
-    const apiHome = apiMatch?.team1 || null;
-    const apiAway = apiMatch?.team2 || null;
-
-    const projectedHome = resolveSeedSlot(seed.home, groupStandings, resolvedMatches);
-    const projectedAway = resolveSeedSlot(seed.away, groupStandings, resolvedMatches);
-
-    const homeTeam = apiHome || projectedHome;
-    const awayTeam = apiAway || projectedAway;
-
+  // ── Round of 32: hardcoded teams + API scores ──
+  const r32Api = byRound["Round of 32"] || [];
+  ROUND_OF_32_MATCHES.forEach((seed, i) => {
+    const apiMatch = r32Api[i];
+    // API team names are authoritative once filled in; fall back to hardcoded
+    const homeTeam = (apiMatch?.team1 && apiMatch.team1 !== "TBD") ? apiMatch.team1
+      : (seed.home !== "TBD" ? seed.home : null);
+    const awayTeam = (apiMatch?.team2 && apiMatch.team2 !== "TBD") ? apiMatch.team2
+      : (seed.away !== "TBD" ? seed.away : null);
     const result = apiMatch ? resolveMatchResult(apiMatch) : null;
 
     resolvedMatches[seed.match] = {
       winner: result?.winner || null,
       loser: result?.loser || null,
     };
+    bracket.push({
+      match: seed.match,
+      round: "Round of 32",
+      homeTeam,
+      awayTeam,
+      homeLabel: homeTeam || "TBD",
+      awayLabel: awayTeam || "TBD",
+      score: apiMatch?.score || null,
+      status: apiMatch?.status || (homeTeam && awayTeam ? "SCHEDULED" : "TBD"),
+      date: apiMatch?.date || null,
+      winner: result?.winner || null,
+    });
+  });
 
+  // ── R16 onwards: API has actual teams once matches are scheduled; fall back
+  //    to projecting winners from already-resolved earlier rounds. ──
+  const laterApi = {
+    "Round of 16": byRound["Round of 16"] || [],
+    "Quarter-final": byRound["Quarter-final"] || [],
+    "Semi-final": byRound["Semi-final"] || [],
+    "3rd Place": byRound["3rd Place"] || [],
+    Winner: byRound["Winner"] || [],
+  };
+  const consumed = { "Round of 16": 0, "Quarter-final": 0, "Semi-final": 0, "3rd Place": 0, Winner: 0 };
+
+  LATER_ROUND_SEEDS.forEach((seed) => {
+    const apiMatch = laterApi[seed.round]?.[consumed[seed.round]];
+    consumed[seed.round] = (consumed[seed.round] || 0) + 1;
+
+    const projHome = resolveFromBracket(seed.home, resolvedMatches);
+    const projAway = resolveFromBracket(seed.away, resolvedMatches);
+    const homeTeam = apiMatch?.team1 || projHome;
+    const awayTeam = apiMatch?.team2 || projAway;
+    const result = apiMatch ? resolveMatchResult(apiMatch) : null;
+
+    resolvedMatches[seed.match] = {
+      winner: result?.winner || null,
+      loser: result?.loser || null,
+    };
+    const homeLabel = homeTeam || (seed.home.type === "winnerOf" ? `W M${seed.home.match}` : `L M${seed.home.match}`);
+    const awayLabel = awayTeam || (seed.away.type === "winnerOf" ? `W M${seed.away.match}` : `L M${seed.away.match}`);
     bracket.push({
       match: seed.match,
       round: seed.round,
       homeTeam,
       awayTeam,
-      homeLabel: homeTeam || seedSlotLabel(seed.home),
-      awayLabel: awayTeam || seedSlotLabel(seed.away),
+      homeLabel,
+      awayLabel,
       score: apiMatch?.score || null,
       status: apiMatch?.status || (homeTeam && awayTeam ? "SCHEDULED" : "TBD"),
       date: apiMatch?.date || null,
@@ -1158,8 +1057,8 @@ export default function App() {
     [apiStandings],
   );
   const bracket = useMemo(
-    () => buildBracket(groupStandings, matches),
-    [groupStandings, matches],
+    () => buildBracket(matches),
+    [matches],
   );
   const knockoutResults = useMemo(
     () => computeKnockoutResults(bracket),
