@@ -290,15 +290,20 @@ function buildBracket(liveMatches) {
   const resolvedMatches = {};
   const bracket = [];
 
-  // ── Round of 32: hardcoded teams + API scores ──
+  // ── Round of 32: hardcoded teams are always correct; look up the API match
+  //    by team names (not by index) to get scores/status/date only. ──
   const r32Api = byRound["Round of 32"] || [];
-  ROUND_OF_32_MATCHES.forEach((seed, i) => {
-    const apiMatch = r32Api[i];
-    // API team names are authoritative once filled in; fall back to hardcoded
-    const homeTeam = (apiMatch?.team1 && apiMatch.team1 !== "TBD") ? apiMatch.team1
-      : (seed.home !== "TBD" ? seed.home : null);
-    const awayTeam = (apiMatch?.team2 && apiMatch.team2 !== "TBD") ? apiMatch.team2
-      : (seed.away !== "TBD" ? seed.away : null);
+  ROUND_OF_32_MATCHES.forEach((seed) => {
+    const homeTeam = seed.home !== "TBD" ? seed.home : null;
+    const awayTeam = seed.away !== "TBD" ? seed.away : null;
+    // Find the corresponding API match regardless of ordering
+    const apiMatch = (homeTeam && awayTeam)
+      ? r32Api.find(
+          (m) =>
+            (m.team1 === homeTeam && m.team2 === awayTeam) ||
+            (m.team1 === awayTeam && m.team2 === homeTeam),
+        )
+      : null;
     const result = apiMatch ? resolveMatchResult(apiMatch) : null;
 
     resolvedMatches[seed.match] = {
