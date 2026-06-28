@@ -43,14 +43,9 @@ async function fetchMatches() {
   return workerFetch("matches");
 }
 
-async function fetchOdds() {
-  return null;
-}
-
 function useWorldCupData() {
   const [standings, setStandings] = useState({});
   const [matches, setMatches] = useState([]);
-  const [odds, setOdds] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -59,10 +54,9 @@ function useWorldCupData() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        const [standData, matchData, oddsData] = await Promise.allSettled([
+        const [standData, matchData] = await Promise.allSettled([
           fetchStandings(),
           fetchMatches(),
-          fetchOdds(),
         ]);
 
         if (standData.status === "fulfilled" && standData.value) {
@@ -70,9 +64,6 @@ function useWorldCupData() {
         }
         if (matchData.status === "fulfilled" && matchData.value) {
           setMatches(parseMatches(matchData.value));
-        }
-        if (oddsData.status === "fulfilled" && oddsData.value) {
-          setOdds(parseOdds(oddsData.value));
         }
         setLastUpdated(new Date());
         setError(null);
@@ -88,7 +79,6 @@ function useWorldCupData() {
   return {
     standings,
     matches,
-    odds,
     loading,
     error,
     lastUpdated,
@@ -173,26 +163,6 @@ function parseMatches(data) {
       group: m.group?.replace("GROUP_", "") || null,
       round: m.stage,
     }));
-}
-
-function parseOdds(data) {
-  const map = {};
-  (data || []).forEach((game) => {
-    const key = `${normalizeTeam(game.home_team)}|${normalizeTeam(game.away_team)}`;
-    const bookie = game.bookmakers?.[0];
-    const h2h = bookie?.markets?.find((m) => m.key === "h2h");
-    if (!h2h) return;
-    const outcomes = {};
-    h2h.outcomes?.forEach((o) => {
-      outcomes[normalizeTeam(o.name)] = o.price;
-    });
-    map[key] = {
-      home: outcomes[normalizeTeam(game.home_team)],
-      draw: outcomes["Draw"],
-      away: outcomes[normalizeTeam(game.away_team)],
-    };
-  });
-  return map;
 }
 
 // ─── GROUP STANDINGS (from API or fallback) ──────────────────────────────────
@@ -550,9 +520,14 @@ function resolveMatchResult(m) {
 
 // Build a map of team -> Set of rounds reached, by walking the resolved
 // bracket (built by buildBracket, in fixed match-number order 73→104).
-// Walking in match-number order guarantees Round of 32 results are credited
-// before Round of 16 is evaluated, etc., so a deep run's points correctly
-// stack round-on-round regardless of API response ordering.
+//
+// Scoring semantics: appearing in a bracket match earns points for *reaching*
+// that round — both the winner and loser of a Round of 32 match earn the R32
+// points (+2) just for qualifying from the group stage, including the best-8
+// third-place teams. The winner then also plays in the next round and earns
+// those points in addition. The Final and 3rd Place match are special-cased:
+// only the actual winner gets the top credit, and the Final loser earns
+// "Runner-up" instead of "Winner".
 function computeKnockoutResults(bracket) {
   const reached = {};
   const credit = (team, round) => {
@@ -565,35 +540,43 @@ function computeKnockoutResults(bracket) {
     .slice()
     .sort((a, b) => a.match - b.match)
     .forEach((m) => {
-      if (!m.winner) return; // not decided yet
-      credit(m.winner, m.round);
       if (m.round === "Winner") {
-        const loser = m.homeTeam === m.winner ? m.awayTeam : m.homeTeam;
-        credit(loser, "Runner-up");
+        if (m.winner) {
+          credit(m.winner, "Winner");
+          const loser = m.homeTeam === m.winner ? m.awayTeam : m.homeTeam;
+          credit(loser, "Runner-up");
+        }
+        return;
       }
+      if (m.round === "3rd Place") {
+        if (m.winner) credit(m.winner, "3rd Place");
+        return;
+      }
+      // Both teams reached this round — credit regardless of outcome
+      credit(m.homeTeam, m.round);
+      credit(m.awayTeam, m.round);
     });
 
   return reached;
 }
 
+// Returns a sorted array of { id, name, color, total, breakdown } — one entry
+// per player, ranked highest-to-lowest. breakdown maps team name → pts earned.
 function computeSweepstakesPoints(knockoutResults) {
-  const pp = {};
-  PLAYERS.forEach((p) => {
-    pp[p.id] = { total: 0, breakdown: {} };
-  });
-  Object.entries(PLAYER_TEAMS).forEach(([pid, teams]) => {
-    teams.forEach((team) => {
+  return PLAYERS.map((p) => {
+    const breakdown = {};
+    let total = 0;
+    PLAYER_TEAMS[p.id].forEach((team) => {
       const rounds = knockoutResults[team];
       if (!rounds) return;
-      let pts = 0;
-      rounds.forEach((r) => {
-        pts += ROUND_POINTS[r] || 0;
-      });
-      pp[pid].breakdown[team] = pts;
-      pp[pid].total += pts;
+      const pts = [...rounds].reduce((s, r) => s + (ROUND_POINTS[r] || 0), 0);
+      if (pts > 0) {
+        breakdown[team] = pts;
+        total += pts;
+      }
     });
-  });
-  return pp;
+    return { ...p, total, breakdown };
+  }).sort((a, b) => b.total - a.total);
 }
 
 // ─── TIME HELPERS ────────────────────────────────────────────────────────────
@@ -680,7 +663,7 @@ function TeamCell({ team, showFlag = true }) {
 }
 
 // ─── MATCH CARDS (upcoming / live / recent) ──────────────────────────────────
-function MatchCard({ match, oddsMap }) {
+function MatchCard({ match }) {
   const { team1, team2, date, status, score, group, round } = match;
   const owner1 = getTeamOwner(team1);
   const owner2 = getTeamOwner(team2);
@@ -689,11 +672,6 @@ function MatchCard({ match, oddsMap }) {
 
   const isLive = status === "IN_PLAY" || status === "PAUSED";
   const isFinished = status === "FINISHED";
-  const isScheduled =
-    status === "TIMED" || status === "SCHEDULED" || (!isLive && !isFinished);
-
-  const oddsKey = `${team1}|${team2}`;
-  const matchOdds = oddsMap[oddsKey];
 
   const timeLabel = isToday(date)
     ? `Today ${toMelbourneTimeOnly(date)}`
@@ -754,34 +732,11 @@ function MatchCard({ match, oddsMap }) {
         </div>
       </div>
 
-      {/* Odds */}
-      {matchOdds && isScheduled && (
-        <div className="mc-odds">
-          <div
-            className="mc-odd"
-            style={{ color: p1?.color || "var(--text-secondary)" }}
-          >
-            <span className="mc-odd-label">1</span>
-            <span className="mc-odd-val">{matchOdds.home?.toFixed(2)}</span>
-          </div>
-          <div className="mc-odd">
-            <span className="mc-odd-label">X</span>
-            <span className="mc-odd-val">{matchOdds.draw?.toFixed(2)}</span>
-          </div>
-          <div
-            className="mc-odd"
-            style={{ color: p2?.color || "var(--text-secondary)" }}
-          >
-            <span className="mc-odd-label">2</span>
-            <span className="mc-odd-val">{matchOdds.away?.toFixed(2)}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function UpcomingSection({ odds, usingDemoMode, liveMatches }) {
+function UpcomingSection({ usingDemoMode, liveMatches }) {
   const now = new Date();
   const cutoff = new Date(now.getTime() - 48 * 3600 * 1000);
 
@@ -827,7 +782,7 @@ function UpcomingSection({ odds, usingDemoMode, liveMatches }) {
           </div>
           <div className="match-cards-row">
             {matches.map((m) => (
-              <MatchCard key={m.id} match={m} oddsMap={odds} />
+              <MatchCard key={m.id} match={m} />
             ))}
           </div>
         </div>
@@ -1104,11 +1059,7 @@ function CustomTooltip({ active, payload }) {
 }
 
 function LeaderboardChart({ playerPoints }) {
-  const data = PLAYERS.map((p) => ({
-    ...p,
-    total: playerPoints[p.id]?.total || 0,
-    breakdown: playerPoints[p.id]?.breakdown || {},
-  })).sort((a, b) => b.total - a.total);
+  const data = playerPoints; // sorted array from computeSweepstakesPoints
   const max = Math.max(...data.map((d) => d.total), 1);
   return (
     <aside className="leaderboard">
@@ -1195,7 +1146,6 @@ export default function App() {
   const {
     standings: apiStandings,
     matches,
-    odds,
     loading,
     error,
     lastUpdated,
@@ -1285,7 +1235,6 @@ export default function App() {
         <main className="main-content">
           {activeTab === "schedule" && (
             <UpcomingSection
-              odds={odds}
               usingDemoMode={usingDemoMode}
               liveMatches={matches}
             />
