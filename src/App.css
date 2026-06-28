@@ -157,10 +157,15 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow: hidden; /* clips header corners only — the table itself scrolls inside .group-table-wrap below */
   transition: border-color 0.2s;
 }
 .group-card:hover { border-color: var(--border-bright); }
+
+.group-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 
 .group-header {
   background: var(--bg-surface);
@@ -173,6 +178,7 @@
 
 .group-table {
   width: 100%;
+  min-width: 420px; /* keeps every column (incl. Pts) visible via horizontal scroll instead of squashing on narrow screens */
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -201,6 +207,7 @@
 }
 .group-row:hover { background: rgba(255,255,255,0.03); }
 .group-row.advancing { background: rgba(0,230,118,0.04); }
+.group-row.qualifying-third { background: rgba(245,197,24,0.06); }
 
 .group-row td {
   padding: 8px 8px;
@@ -229,6 +236,7 @@
   color: var(--text-muted);
 }
 .legend-adv { border-left: 3px solid var(--accent-green); padding-left: 8px; }
+.legend-third { border-left: 3px solid var(--accent-gold); padding-left: 8px; }
 
 /* ─── KNOCKOUT SECTION ────────────────────────────────────────────────────── */
 .knockout-points-legend {
@@ -262,12 +270,14 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .kp-header, .kp-row {
   display: grid;
-  grid-template-columns: 180px repeat(6, 1fr) 60px;
+  grid-template-columns: 180px repeat(6, minmax(70px, 1fr)) 60px;
+  min-width: 720px; /* forces horizontal scroll instead of column squashing on narrow screens */
   align-items: center;
   gap: 4px;
   padding: 10px 14px;
@@ -398,7 +408,7 @@
   .body { flex-direction: column; padding: 16px 12px 32px; }
   .leaderboard { width: 100%; position: static; max-height: none; }
   .groups-grid { grid-template-columns: 1fr; }
-  .kp-header, .kp-row { grid-template-columns: 140px repeat(6, 1fr) 50px; font-size: 10px; }
+  .kp-header, .kp-row { font-size: 10px; }
 }
 
 /* ─── STATUS PILLS ────────────────────────────────────────────────────────── */

@@ -64,19 +64,34 @@ export const GROUPS = {
 };
 
 // ─── TEAM → PLAYER LOOKUP ───────────────────────────────────────────────────
+// Single source of truth for team-name normalisation. Both data.js (here)
+// and App.jsx import from this — keeping one map avoids the two files'
+// name-variant lists silently drifting apart, which can make a team's
+// points vanish from the leaderboard with no visible error.
+export const NORMALIZE_MAP = {
+  "United States": "USA",
+  "US": "USA",
+  "Bosnia and Herzegovina": "Bosnia & Herz.",
+  "Bosnia & Herzegovina": "Bosnia & Herz.",
+  "Bosnia-Herzegovina": "Bosnia & Herz.",
+  "Bosnia-H.": "Bosnia & Herz.",
+  "Côte d'Ivoire": "Ivory Coast",
+  "Cote d'Ivoire": "Ivory Coast",
+  "Korea Republic": "South Korea",
+  "Turkey": "Türkiye",
+  "Congo DR": "DR Congo",
+  "Congo, DR": "DR Congo",
+  "Cape Verde Islands": "Cape Verde",
+  "Czech Republic": "Czechia",
+};
+
+export function normalizeTeamName(name) {
+  if (!name) return "";
+  return NORMALIZE_MAP[name] || name;
+}
+
 export function getTeamOwner(teamName) {
-  const norm = {
-    "United States": "USA",
-    "Bosnia and Herzegovina": "Bosnia & Herz.",
-    "Bosnia & Herzegovina": "Bosnia & Herz.",
-    "Bosnia-Herzegovina": "Bosnia & Herz.",
-    "Côte d'Ivoire": "Ivory Coast",
-    "Korea Republic": "South Korea",
-    Turkey: "Türkiye",
-    "Congo DR": "DR Congo",
-    "Cape Verde Islands": "Cape Verde",
-  };
-  const key = norm[teamName] || teamName;
+  const key = normalizeTeamName(teamName);
   for (const [playerId, teams] of Object.entries(PLAYER_TEAMS)) {
     if (teams.includes(key)) return playerId;
   }

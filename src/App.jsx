@@ -15,6 +15,7 @@ import {
   ROUND_POINTS,
   getTeamOwner,
   FLAGS,
+  normalizeTeamName,
 } from "./data";
 import { SCHEDULE } from "./schedule";
 import "./App.css";
@@ -28,11 +29,9 @@ const MELBOURNE_TZ = "Australia/Melbourne";
 
 // ─── API FETCHING ─────────────────────────────────────────────────────────────
 async function workerFetch(path) {
-  console.log(path);
   const res = await fetch(`${WORKER_BASE}/${path}`);
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error || `${path} error ${res.status}`);
-  console.log(data);
   return data;
 }
 
@@ -60,16 +59,11 @@ function useWorldCupData() {
   useEffect(() => {
     async function fetchAll() {
       try {
-        setUsingDemoMode(true);
-        setLoading(false);
-
         const [standData, matchData, oddsData] = await Promise.allSettled([
           fetchStandings(),
           fetchMatches(),
           fetchOdds(),
         ]);
-
-        console.log(standData.status);
 
         if (standData.status === "fulfilled" && standData.value) {
           setStandings(parseStandings(standData.value));
@@ -103,25 +97,9 @@ function useWorldCupData() {
 }
 
 // ─── PARSERS ─────────────────────────────────────────────────────────────────
-function normalizeTeam(name) {
-  if (!name) return "";
-  const map = {
-    // football-data.org name variants
-    "United States": "USA",
-    "Bosnia-Herzegovina": "Bosnia & Herz.",
-    "Bosnia and Herzegovina": "Bosnia & Herz.",
-    "Bosnia & Herzegovina": "Bosnia & Herz.",
-    "Bosnia-H.": "Bosnia & Herz.",
-    "Korea Republic": "South Korea",
-    "Côte d'Ivoire": "Ivory Coast",
-    "Czech Republic": "Czechia",
-    Turkey: "Türkiye",
-    "Congo DR": "DR Congo",
-    "Congo, DR": "DR Congo",
-    "Cape Verde Islands": "Cape Verde",
-  };
-  return map[name] || name;
-}
+// Team-name normalisation lives in one place: data.js's normalizeTeamName.
+// This local alias keeps the rest of this file's code unchanged.
+const normalizeTeam = normalizeTeamName;
 
 function parseStandings(data) {
   // football-data.org returns one flat table of 48 teams with group=null
@@ -179,7 +157,15 @@ function parseMatches(data) {
       team2: normalizeTeam(m.awayTeam?.name),
       score:
         m.status === "FINISHED"
-          ? { ft: [m.score?.fullTime?.home ?? 0, m.score?.fullTime?.away ?? 0] }
+          ? {
+              ft: [m.score?.fullTime?.home ?? 0, m.score?.fullTime?.away ?? 0],
+              // 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' (DRAW only valid in
+              // group-stage matches; knockout ties always have a winner
+              // once finished, decided by extra time or penalties)
+              winner: m.score?.winner ?? null,
+              // 'REGULAR' | 'EXTRA_TIME' | 'PENALTY_SHOOTOUT'
+              duration: m.score?.duration ?? null,
+            }
           : null,
       // API uses: TIMED, SCHEDULED, IN_PLAY, PAUSED, FINISHED, SUSPENDED, CANCELLED
       status: m.status,
@@ -288,47 +274,119 @@ function computeGroupStandings(apiStandings, scheduleMatches) {
   return standings;
 }
 
+// ─── KNOCKOUT BRACKET ────────────────────────────────────────────────────────
+// Rather than inferring "how far did team X get" purely by pattern-matching
+// each match's stage string in isolation, we build the bracket as a real
+// tree: every knockout match has a known round, and we resolve winners by
+// walking matches in calendar order so later rounds can depend on earlier
+// results. This also lets us use the API's authoritative `score.winner`
+// field (HOME_TEAM / AWAY_TEAM) instead of comparing fulltime goals, which
+// is wrong whenever a match is decided by extra time or penalties (e.g. a
+// 1-1 draw after 90 minutes, won on penalties — fulltime score alone can't
+// tell us who actually advanced).
+const KNOCKOUT_STAGE_ORDER = [
+  "LAST_32",
+  "LAST_16",
+  "QUARTER_FINALS",
+  "SEMI_FINALS",
+  "THIRD_PLACE",
+  "FINAL",
+];
+
+const STAGE_TO_ROUND_LABEL = {
+  LAST_32: "Round of 32",
+  ROUND_OF_32: "Round of 32",
+  LAST_16: "Round of 16",
+  ROUND_OF_16: "Round of 16",
+  QUARTER_FINALS: "Quarter-final",
+  SEMI_FINALS: "Semi-final",
+  THIRD_PLACE: "3rd Place",
+  FINAL: "Winner",
+};
+
+function stageToRoundLabel(stage) {
+  const s = (stage || "").toUpperCase();
+  // Exact match first (avoids "FINAL" substring wrongly matching
+  // "SEMI_FINALS" or "QUARTER_FINALS", which was the bug previously).
+  if (STAGE_TO_ROUND_LABEL[s]) return STAGE_TO_ROUND_LABEL[s];
+  // Fallback substring match for any stage-name variant we haven't seen.
+  if (s.includes("32")) return "Round of 32";
+  if (s.includes("16")) return "Round of 16";
+  if (s.includes("QUARTER")) return "Quarter-final";
+  if (s.includes("SEMI")) return "Semi-final";
+  if (s.includes("THIRD") || s.includes("3RD")) return "3rd Place";
+  if (s.includes("FINAL")) return "Winner";
+  return null;
+}
+
+// Resolve the winner/loser of a single finished knockout match.
+// Uses the API's `score.winner` field first (authoritative — correctly
+// reflects extra-time and penalty results); falls back to comparing the
+// fulltime score only if `winner` wasn't supplied at all.
+function resolveMatchResult(m) {
+  if (!m.score) return null;
+  if (m.score.winner === "HOME_TEAM") return { winner: m.team1, loser: m.team2 };
+  if (m.score.winner === "AWAY_TEAM") return { winner: m.team2, loser: m.team1 };
+  if (m.score.winner === "DRAW") return null; // group stage only; no knockout draws
+  // Fallback for any response shape that omitted `winner`.
+  const [g1, g2] = m.score.ft || [];
+  if (g1 > g2) return { winner: m.team1, loser: m.team2 };
+  if (g2 > g1) return { winner: m.team2, loser: m.team1 };
+  return null; // genuinely undecided (e.g. fulltime draw, no winner field — data incomplete)
+}
+
+// Build a map of team -> Set of rounds reached, by walking all knockout
+// matches in bracket order (Round of 32 first, then Round of 16, etc).
+// Walking in order means a team that's confirmed to have won its Round of
+// 32 tie is credited with "Round of 32" even before its Round of 16 match
+// has been played, and every later round it wins adds on top of that —
+// so a single deep run accumulates the correct cumulative point total.
 function computeKnockoutResults(matches) {
   const reached = {};
-  matches
-    .filter((m) => m.score)
-    .forEach((m) => {
-      const stage = (m.stage || m.round || "").toUpperCase();
-      const isKnockout = [
-        "ROUND_OF_32",
-        "LAST_32",
-        "ROUND_OF_16",
-        "LAST_16",
-        "QUARTER",
-        "SEMI",
-        "FINAL",
-      ].some((k) => stage.includes(k));
-      if (!isKnockout) return;
-      const [g1, g2] = m.score.ft;
-      let winner = null,
-        loser = null;
-      if (g1 > g2) {
-        winner = m.team1;
-        loser = m.team2;
-      } else if (g2 > g1) {
-        winner = m.team2;
-        loser = m.team1;
-      }
-      if (!winner) return;
-      let rk = "Round of 32";
-      if (stage.includes("16") || stage.includes("LAST_16")) rk = "Round of 16";
-      else if (stage.includes("QUARTER")) rk = "Quarter-final";
-      else if (stage.includes("SEMI")) rk = "Semi-final";
-      else if (stage.includes("THIRD") || stage.includes("3RD"))
-        rk = "3rd Place";
-      else if (stage.includes("FINAL")) rk = "Winner";
-      if (!reached[winner]) reached[winner] = new Set();
-      reached[winner].add(rk);
-      if (rk === "Winner") {
-        if (!reached[loser]) reached[loser] = new Set();
-        reached[loser].add("Runner-up");
-      }
-    });
+  const credit = (team, round) => {
+    if (!team || !round) return;
+    if (!reached[team]) reached[team] = new Set();
+    reached[team].add(round);
+  };
+
+  const knockoutMatches = matches.filter((m) => {
+    const stage = (m.stage || m.round || "").toUpperCase();
+    return KNOCKOUT_STAGE_ORDER.some((s) => stage === s || stage.includes(s));
+  });
+
+  // Sort by FIFA's fixed stage order first, then kickoff time — this
+  // guarantees we always resolve a Round of 32 result before trying to
+  // use it as input to a Round of 16 calculation, regardless of what
+  // order the API happened to return matches in.
+  const stageRank = (m) => {
+    const s = (m.stage || m.round || "").toUpperCase();
+    const idx = KNOCKOUT_STAGE_ORDER.findIndex((k) => s === k || s.includes(k));
+    return idx === -1 ? 999 : idx;
+  };
+  knockoutMatches.sort(
+    (a, b) => stageRank(a) - stageRank(b) || new Date(a.date) - new Date(b.date),
+  );
+
+  knockoutMatches.forEach((m) => {
+    if (!m.score) return; // not played yet
+    const result = resolveMatchResult(m);
+    if (!result) return; // undecided / incomplete data
+
+    const round = stageToRoundLabel(m.stage || m.round);
+    if (!round) return;
+
+    // The team that wins this match is credited with having reached
+    // (i.e. won) this round.
+    credit(result.winner, round);
+
+    // The Final is special: its loser is credited as Runner-up, and its
+    // winner is credited as Winner (on top of every earlier round they
+    // already won on the way here).
+    if (round === "Winner") {
+      credit(result.loser, "Runner-up");
+    }
+  });
+
   return reached;
 }
 
@@ -593,6 +651,24 @@ function UpcomingSection({ odds, usingDemoMode, liveMatches }) {
 }
 
 function GroupsSection({ standings }) {
+  // Rank all 3rd-place teams across groups to show which are currently
+  // "in the mix" for the best-8-of-12 qualification spots. This is
+  // display-only — the actual Round of 32 lineup comes from the live API
+  // once FIFA locks the bracket in; this just helps a person reading the
+  // group tables see who's provisionally through as things stand.
+  const thirdPlaceTeams = Object.values(standings)
+    .map((teams) => teams[2])
+    .filter(Boolean)
+    .sort(
+      (a, b) =>
+        b.pts - a.pts ||
+        (b.gf || 0) - (b.ga || 0) - ((a.gf || 0) - (a.ga || 0)) ||
+        (b.gf || 0) - (a.gf || 0),
+    );
+  const top8ThirdPlaceTeams = new Set(
+    thirdPlaceTeams.slice(0, 8).map((t) => t.team),
+  );
+
   return (
     <section className="section">
       <h2 className="section-title bebas">Group Stage</h2>
@@ -600,58 +676,64 @@ function GroupsSection({ standings }) {
         {Object.entries(standings).map(([grp, teams]) => (
           <div key={grp} className="group-card">
             <div className="group-header bebas">Group {grp}</div>
-            <table className="group-table">
-              <thead>
-                <tr>
-                  <th className="th-pos">#</th>
-                  <th className="th-team">Team</th>
-                  <th>MP</th>
-                  <th>W</th>
-                  <th>D</th>
-                  <th>L</th>
-                  <th>GD</th>
-                  <th className="th-pts">Pts</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teams.map((t, i) => {
-                  const owner = getTeamOwner(t.team);
-                  const player = PLAYERS.find((p) => p.id === owner);
-                  const gd = (t.gf || 0) - (t.ga || 0);
-                  return (
-                    <tr
-                      key={t.team}
-                      className={`group-row ${i < 2 ? "advancing" : ""}`}
-                      style={
-                        player
-                          ? { borderLeft: `3px solid ${player.color}` }
-                          : {}
-                      }
-                    >
-                      <td className="td-pos">{i + 1}</td>
-                      <td className="td-team">
-                        <TeamCell team={t.team} />
-                      </td>
-                      <td>{t.mp}</td>
-                      <td>{t.w}</td>
-                      <td>{t.d}</td>
-                      <td>{t.l}</td>
-                      <td className={gd > 0 ? "pos" : gd < 0 ? "neg" : ""}>
-                        {gd > 0 ? "+" : ""}
-                        {gd}
-                      </td>
-                      <td className="td-pts">{t.pts}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div className="group-table-wrap">
+              <table className="group-table">
+                <thead>
+                  <tr>
+                    <th className="th-pos">#</th>
+                    <th className="th-team">Team</th>
+                    <th>MP</th>
+                    <th>W</th>
+                    <th>D</th>
+                    <th>L</th>
+                    <th>GD</th>
+                    <th className="th-pts">Pts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teams.map((t, i) => {
+                    const owner = getTeamOwner(t.team);
+                    const player = PLAYERS.find((p) => p.id === owner);
+                    const gd = (t.gf || 0) - (t.ga || 0);
+                    const isQualifyingThird =
+                      i === 2 && top8ThirdPlaceTeams.has(t.team);
+                    return (
+                      <tr
+                        key={t.team}
+                        className={`group-row ${i < 2 ? "advancing" : ""} ${isQualifyingThird ? "qualifying-third" : ""}`}
+                        style={
+                          player
+                            ? { borderLeft: `3px solid ${player.color}` }
+                            : {}
+                        }
+                      >
+                        <td className="td-pos">{i + 1}</td>
+                        <td className="td-team">
+                          <TeamCell team={t.team} />
+                        </td>
+                        <td>{t.mp}</td>
+                        <td>{t.w}</td>
+                        <td>{t.d}</td>
+                        <td>{t.l}</td>
+                        <td className={gd > 0 ? "pos" : gd < 0 ? "neg" : ""}>
+                          {gd > 0 ? "+" : ""}
+                          {gd}
+                        </td>
+                        <td className="td-pts">{t.pts}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         ))}
       </div>
       <div className="legend-row">
-        <span className="legend-adv">
-          ■ Top 2 per group advance · Best 8 third-place teams also advance
+        <span className="legend-adv">■ Top 2 per group advance</span>
+        {" · "}
+        <span className="legend-third">
+          ■ Currently in best-8 third-place spots
         </span>
       </div>
     </section>
