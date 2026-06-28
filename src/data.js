@@ -115,7 +115,7 @@ export const ROUND_OF_32_MATCHES = [
   { match: 83, home: "Portugal", away: "Croatia" },
   { match: 84, home: "Spain", away: "TBD" },
   { match: 85, home: "Switzerland", away: "TBD" },
-  { match: 86, home: "Argentina", away: "Cabo Verde" },
+  { match: 86, home: "Argentina", away: "Cape Verde" },
   { match: 87, home: "Colombia", away: "Ghana" },
   { match: 88, home: "Australia", away: "Egypt" },
 ];
