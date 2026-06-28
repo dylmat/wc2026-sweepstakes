@@ -823,17 +823,39 @@ function BracketMatchCard({ m }) {
   );
 }
 
+// Derive the correct R32 display order from the R16 pairings in LATER_ROUND_SEEDS:
+// for each R16 match (in match-number order), its two R32 feeders appear adjacent.
+// This means M74 and M77 (which meet in R16) are shown next to each other, not
+// M73 and M74 (which are just numerically adjacent but in different R16 slots).
+const R32_DISPLAY_ORDER = (() => {
+  const order = {};
+  LATER_ROUND_SEEDS
+    .filter((s) => s.round === "Round of 16")
+    .sort((a, b) => a.match - b.match)
+    .flatMap((s) => [s.home.match, s.away.match])
+    .forEach((matchNum, i) => { order[matchNum] = i; });
+  return order;
+})();
+
 function BracketVisual({ bracket }) {
   const roundOrder = ["Round of 32", "Round of 16", "Quarter-final", "Semi-final", "Winner"];
   const byRound = {};
   bracket.forEach((m) => {
-    // Group the 3rd-place playoff alongside the Final visually — it's a
-    // side note to the main bracket, not really a "round" in the tree.
+    // Group the 3rd-place playoff alongside the Final visually.
     const key = m.round === "3rd Place" ? "Winner" : m.round;
     if (!byRound[key]) byRound[key] = [];
     byRound[key].push(m);
   });
-  Object.values(byRound).forEach((list) => list.sort((a, b) => a.match - b.match));
+  // R32: sort by bracket tree position so paired matches are adjacent.
+  // All other rounds: sort by match number (which is already chronological).
+  if (byRound["Round of 32"]) {
+    byRound["Round of 32"].sort(
+      (a, b) => (R32_DISPLAY_ORDER[a.match] ?? a.match) - (R32_DISPLAY_ORDER[b.match] ?? b.match),
+    );
+  }
+  ["Round of 16", "Quarter-final", "Semi-final", "Winner"].forEach((r) => {
+    byRound[r]?.sort((a, b) => a.match - b.match);
+  });
 
   return (
     <div className="bracket-wrap">
