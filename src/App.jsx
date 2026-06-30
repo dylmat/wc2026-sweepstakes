@@ -333,40 +333,46 @@ function buildBracket(liveMatches) {
 
   // ── R16 onwards: API has actual teams once matches are scheduled; fall back
   //    to projecting winners from already-resolved earlier rounds. ──
-  const laterApi = {
+  //    Find the corresponding API match by team names (same as R32) — never
+  //    let API team names override bracket-derived teams, which avoids the
+  //    index-mismatch bug where a team ends up in two different bracket slots.
+  const laterApiByRound = {
     "Round of 16": byRound["Round of 16"] || [],
     "Quarter-final": byRound["Quarter-final"] || [],
     "Semi-final": byRound["Semi-final"] || [],
     "3rd Place": byRound["3rd Place"] || [],
     Winner: byRound["Winner"] || [],
   };
-  const consumed = { "Round of 16": 0, "Quarter-final": 0, "Semi-final": 0, "3rd Place": 0, Winner: 0 };
 
   LATER_ROUND_SEEDS.forEach((seed) => {
-    const apiMatch = laterApi[seed.round]?.[consumed[seed.round]];
-    consumed[seed.round] = (consumed[seed.round] || 0) + 1;
-
     const projHome = resolveFromBracket(seed.home, resolvedMatches);
     const projAway = resolveFromBracket(seed.away, resolvedMatches);
-    const homeTeam = apiMatch?.team1 || projHome;
-    const awayTeam = apiMatch?.team2 || projAway;
+
+    const apiMatch = (projHome && projAway)
+      ? laterApiByRound[seed.round].find(
+          (m) =>
+            (m.team1 === projHome && m.team2 === projAway) ||
+            (m.team1 === projAway && m.team2 === projHome),
+        )
+      : null;
+
     const result = apiMatch ? resolveMatchResult(apiMatch) : null;
 
     resolvedMatches[seed.match] = {
       winner: result?.winner || null,
       loser: result?.loser || null,
     };
-    const homeLabel = homeTeam || (seed.home.type === "winnerOf" ? `W M${seed.home.match}` : `L M${seed.home.match}`);
-    const awayLabel = awayTeam || (seed.away.type === "winnerOf" ? `W M${seed.away.match}` : `L M${seed.away.match}`);
+    const homeLabel = projHome || (seed.home.type === "winnerOf" ? `W M${seed.home.match}` : `L M${seed.home.match}`);
+    const awayLabel = projAway || (seed.away.type === "winnerOf" ? `W M${seed.away.match}` : `L M${seed.away.match}`);
     bracket.push({
       match: seed.match,
       round: seed.round,
-      homeTeam,
-      awayTeam,
+      homeTeam: projHome,
+      awayTeam: projAway,
       homeLabel,
       awayLabel,
       score: apiMatch?.score || null,
-      status: apiMatch?.status || (homeTeam && awayTeam ? "SCHEDULED" : "TBD"),
+      status: apiMatch?.status || (projHome && projAway ? "SCHEDULED" : "TBD"),
       date: apiMatch?.date || null,
       winner: result?.winner || null,
     });
