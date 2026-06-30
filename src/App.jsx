@@ -620,15 +620,12 @@ function MatchCard({ match }) {
           {isFinished || isLive ? (
             <div className="mc-score">
               <span className={score?.winner === "HOME_TEAM" || (!score?.winner && score?.ft[0] > score?.ft[1]) ? "mc-winner" : ""}>
-                {score?.ft[0] ?? "–"}
+                {score?.ft[0] ?? "–"}{score?.pens ? ` (${score.pens[0]})` : ""}
               </span>
               <span className="mc-sep">:</span>
               <span className={score?.winner === "AWAY_TEAM" || (!score?.winner && score?.ft[1] > score?.ft[0]) ? "mc-winner" : ""}>
-                {score?.ft[1] ?? "–"}
+                {score?.ft[1] ?? "–"}{score?.pens ? ` (${score.pens[1]})` : ""}
               </span>
-              {score?.pens && (
-                <span className="mc-pens">({score.pens[0]}-{score.pens[1]} p)</span>
-              )}
             </div>
           ) : (
             <span className="mc-vs">VS</span>
