@@ -141,29 +141,36 @@ function parseStandings(data) {
 function parseMatches(data) {
   return (data.matches || [])
     .filter((m) => m.homeTeam?.name) // skip TBD knockout slots
-    .map((m) => ({
-      id: m.id,
-      date: m.utcDate,
-      team1: normalizeTeam(m.homeTeam?.name),
-      team2: normalizeTeam(m.awayTeam?.name),
-      score:
-        m.status === "FINISHED"
-          ? {
-              ft: [m.score?.fullTime?.home ?? 0, m.score?.fullTime?.away ?? 0],
-              // 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' (DRAW only valid in
-              // group-stage matches; knockout ties always have a winner
-              // once finished, decided by extra time or penalties)
-              winner: m.score?.winner ?? null,
-              // 'REGULAR' | 'EXTRA_TIME' | 'PENALTY_SHOOTOUT'
-              duration: m.score?.duration ?? null,
-            }
-          : null,
-      // API uses: TIMED, SCHEDULED, IN_PLAY, PAUSED, FINISHED, SUSPENDED, CANCELLED
-      status: m.status,
-      stage: m.stage,
-      group: m.group?.replace("GROUP_", "") || null,
-      round: m.stage,
-    }));
+    .map((m) => {
+      const s = m.score;
+      // Use regularTime + extraTime for the displayed score so penalty goals
+      // don't inflate the scoreline (e.g. 1-1 aet not 4-5). Fall back to
+      // fullTime when regularTime is absent (group-stage REGULAR matches).
+      const regH = s?.regularTime?.home ?? s?.fullTime?.home ?? 0;
+      const regA = s?.regularTime?.away ?? s?.fullTime?.away ?? 0;
+      const etH  = s?.extraTime?.home ?? 0;
+      const etA  = s?.extraTime?.away ?? 0;
+      const isPens = s?.duration === "PENALTY_SHOOTOUT";
+      return {
+        id: m.id,
+        date: m.utcDate,
+        team1: normalizeTeam(m.homeTeam?.name),
+        team2: normalizeTeam(m.awayTeam?.name),
+        score:
+          m.status === "FINISHED"
+            ? {
+                ft: [regH + etH, regA + etA],
+                pens: isPens ? [s.penalties?.home ?? 0, s.penalties?.away ?? 0] : null,
+                winner: s?.winner ?? null,
+                duration: s?.duration ?? null,
+              }
+            : null,
+        status: m.status,
+        stage: m.stage,
+        group: m.group?.replace("GROUP_", "") || null,
+        round: m.stage,
+      };
+    });
 }
 
 // ─── GROUP STANDINGS (from API or fallback) ──────────────────────────────────
@@ -612,13 +619,16 @@ function MatchCard({ match }) {
         <div className="mc-score-wrap">
           {isFinished || isLive ? (
             <div className="mc-score">
-              <span className={score?.ft[0] > score?.ft[1] ? "mc-winner" : ""}>
+              <span className={score?.winner === "HOME_TEAM" || (!score?.winner && score?.ft[0] > score?.ft[1]) ? "mc-winner" : ""}>
                 {score?.ft[0] ?? "–"}
               </span>
               <span className="mc-sep">:</span>
-              <span className={score?.ft[1] > score?.ft[0] ? "mc-winner" : ""}>
+              <span className={score?.winner === "AWAY_TEAM" || (!score?.winner && score?.ft[1] > score?.ft[0]) ? "mc-winner" : ""}>
                 {score?.ft[1] ?? "–"}
               </span>
+              {score?.pens && (
+                <span className="mc-pens">({score.pens[0]}-{score.pens[1]} p)</span>
+              )}
             </div>
           ) : (
             <span className="mc-vs">VS</span>
@@ -793,8 +803,10 @@ function BracketMatchCard({ m }) {
 
   const isFinished = m.status === "FINISHED";
   const isLive = m.status === "IN_PLAY" || m.status === "PAUSED";
-  const homeScore = isFinished || isLive ? m.score?.ft?.[0] : null;
-  const awayScore = isFinished || isLive ? m.score?.ft?.[1] : null;
+  const showScore = isFinished || isLive;
+  const homeScore = showScore ? m.score?.ft?.[0] : null;
+  const awayScore = showScore ? m.score?.ft?.[1] : null;
+  const pens = m.score?.pens ?? null; // [homePens, awayPens] or null
   const homeWon = m.winner && m.homeTeam === m.winner;
   const awayWon = m.winner && m.awayTeam === m.winner;
 
@@ -807,7 +819,11 @@ function BracketMatchCard({ m }) {
         <span className="bracket-flag">{m.homeTeam ? FLAGS[m.homeTeam] || "🏳️" : ""}</span>
         <span className="bracket-tname">{m.homeLabel}</span>
         {homePlayer && <PlayerBadge playerId={homeOwner} />}
-        {homeScore !== null && <span className="bracket-score">{homeScore}</span>}
+        {homeScore !== null && (
+          <span className="bracket-score">
+            {homeScore}{pens ? ` (${pens[0]})` : ""}
+          </span>
+        )}
       </div>
       <div
         className={`bracket-team ${awayWon ? "bracket-winner" : ""}`}
@@ -816,7 +832,11 @@ function BracketMatchCard({ m }) {
         <span className="bracket-flag">{m.awayTeam ? FLAGS[m.awayTeam] || "🏳️" : ""}</span>
         <span className="bracket-tname">{m.awayLabel}</span>
         {awayPlayer && <PlayerBadge playerId={awayOwner} />}
-        {awayScore !== null && <span className="bracket-score">{awayScore}</span>}
+        {awayScore !== null && (
+          <span className="bracket-score">
+            {awayScore}{pens ? ` (${pens[1]})` : ""}
+          </span>
+        )}
       </div>
       {isLive && <span className="bracket-live-tag">● LIVE</span>}
     </div>
