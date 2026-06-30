@@ -407,9 +407,13 @@
 .footer a:hover { color: var(--text-primary); }
 
 /* ─── RESPONSIVE ──────────────────────────────────────────────────────────── */
+.lb-mobile-slot { display: none; }
+
 @media (max-width: 900px) {
   .body { flex-direction: column; padding: 16px 12px 32px; }
-  .leaderboard { width: 100%; position: static; max-height: none; }
+  .body .leaderboard { display: none; }           /* hide desktop sidebar */
+  .lb-mobile-slot { display: block; padding: 12px 12px 0; }
+  .lb-mobile-slot .leaderboard { width: 100%; position: static; max-height: none; }
   .groups-grid { grid-template-columns: 1fr; }
   .kp-header, .kp-row { font-size: 10px; }
 }

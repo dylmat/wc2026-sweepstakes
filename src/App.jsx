@@ -1164,6 +1164,11 @@ export default function App() {
         </div>
       </header>
 
+      {/* Mobile leaderboard — sits above the tabs on small screens */}
+      <div className="lb-mobile-slot">
+        <LeaderboardChart playerPoints={playerPoints} />
+      </div>
+
       <nav className="tab-nav">
         {["schedule", "groups", "knockout"].map((tab) => (
           <button
