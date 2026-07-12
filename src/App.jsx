@@ -151,13 +151,19 @@ function parseMatches(data) {
       const etH  = s?.extraTime?.home ?? 0;
       const etA  = s?.extraTime?.away ?? 0;
       const isPens = s?.duration === "PENALTY_SHOOTOUT";
+      // The API sometimes returns a date string as the status instead of
+      // "FINISHED" (observed for WC 2026 R16). Treat any match as having a
+      // result when the fullTime score is non-null, regardless of status.
+      const hasResult =
+        m.status === "FINISHED" ||
+        m.status === "AWARDED" ||
+        s?.fullTime?.home != null;
       return {
         id: m.id,
         date: m.utcDate,
         team1: normalizeTeam(m.homeTeam?.name),
         team2: normalizeTeam(m.awayTeam?.name),
-        score:
-          m.status === "FINISHED"
+        score: hasResult
             ? {
                 ft: [regH + etH, regA + etA],
                 pens: isPens ? [s.penalties?.home ?? 0, s.penalties?.away ?? 0] : null,
@@ -165,7 +171,7 @@ function parseMatches(data) {
                 duration: s?.duration ?? null,
               }
             : null,
-        status: m.status,
+        status: hasResult ? "FINISHED" : m.status,
         stage: m.stage,
         group: m.group?.replace("GROUP_", "") || null,
         round: m.stage,
