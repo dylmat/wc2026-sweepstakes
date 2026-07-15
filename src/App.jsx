@@ -464,11 +464,10 @@ function computeKnockoutResults(bracket) {
     .sort((a, b) => a.match - b.match)
     .forEach((m) => {
       if (m.round === "Winner") {
-        if (m.winner) {
-          credit(m.winner, "Winner");
-          const loser = m.homeTeam === m.winner ? m.awayTeam : m.homeTeam;
-          credit(loser, "Runner-up");
-        }
+        // Both finalists earn Runner-up just for reaching the Final
+        credit(m.homeTeam, "Runner-up");
+        credit(m.awayTeam, "Runner-up");
+        if (m.winner) credit(m.winner, "Winner");
         return;
       }
       if (m.round === "3rd Place") {
@@ -882,8 +881,14 @@ function BracketVisual({ bracket }) {
       (a, b) => (R32_DISPLAY_ORDER[a.match] ?? a.match) - (R32_DISPLAY_ORDER[b.match] ?? b.match),
     );
   }
-  ["Round of 16", "Quarter-final", "Semi-final", "Winner"].forEach((r) => {
+  ["Round of 16", "Quarter-final", "Semi-final"].forEach((r) => {
     byRound[r]?.sort((a, b) => a.match - b.match);
+  });
+  // Final column: show the actual Final above 3rd Place
+  byRound["Winner"]?.sort((a, b) => {
+    if (a.round === "Winner" && b.round !== "Winner") return -1;
+    if (a.round !== "Winner" && b.round === "Winner") return 1;
+    return a.match - b.match;
   });
 
   return (
