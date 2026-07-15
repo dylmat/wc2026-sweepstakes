@@ -276,8 +276,8 @@ const LATER_ROUND_SEEDS = [
   { match: 98, round: "Quarter-final", home: { type: "winnerOf", match: 91 }, away: { type: "winnerOf", match: 92 } },
   { match: 99, round: "Quarter-final", home: { type: "winnerOf", match: 93 }, away: { type: "winnerOf", match: 94 } },
   { match: 100, round: "Quarter-final", home: { type: "winnerOf", match: 95 }, away: { type: "winnerOf", match: 96 } },
-  { match: 101, round: "Semi-final", home: { type: "winnerOf", match: 97 }, away: { type: "winnerOf", match: 98 } },
-  { match: 102, round: "Semi-final", home: { type: "winnerOf", match: 99 }, away: { type: "winnerOf", match: 100 } },
+  { match: 101, round: "Semi-final", home: { type: "winnerOf", match: 97 }, away: { type: "winnerOf", match: 99 } },
+  { match: 102, round: "Semi-final", home: { type: "winnerOf", match: 98 }, away: { type: "winnerOf", match: 100 } },
   { match: 103, round: "3rd Place", home: { type: "loserOf", match: 101 }, away: { type: "loserOf", match: 102 } },
   { match: 104, round: "Winner", home: { type: "winnerOf", match: 101 }, away: { type: "winnerOf", match: 102 } },
 ];
